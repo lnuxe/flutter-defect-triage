@@ -1,0 +1,10 @@
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# local notes, never publish
+.env
+*.local.md
+scratch/

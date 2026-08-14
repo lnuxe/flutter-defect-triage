@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# setup — install flutter-defect-triage for Cursor and/or Claude Code
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/lnuxe/flutter-defect-triage/main/setup | bash
+#   or: bash setup   (if already cloned)
+
+set -euo pipefail
+
+REPO_URL="https://github.com/lnuxe/flutter-defect-triage.git"
+SKILL_NAME="flutter-defect-triage"
+CURSOR_DIR="${CURSOR_SKILLS_DIR:-$HOME/.cursor/skills/$SKILL_NAME}"
+CLAUDE_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills/$SKILL_NAME}"
+
+case "$(uname -s 2>/dev/null || echo Windows)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    CURSOR_DIR="${CURSOR_SKILLS_DIR:-$APPDATA/.cursor/skills/$SKILL_NAME}"
+    CLAUDE_DIR="${CLAUDE_SKILLS_DIR:-$APPDATA/.claude/skills/$SKILL_NAME}"
+    ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
+IS_CLONED=0
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/SKILL.md" && -f "$SCRIPT_DIR/VERSION" ]]; then
+  IS_CLONED=1
+  SOURCE_DIR="$SCRIPT_DIR"
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  flutter-defect-triage installer"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+copy_tree() {
+  local src="$1"
+  local dest="$2"
+  mkdir -p "$dest"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude '.git' --exclude '.DS_Store' "$src"/ "$dest"/
+  else
+    # portable fallback
+    find "$dest" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+    cp -R "$src"/. "$dest"/
+    rm -rf "$dest/.git" 2>/dev/null || true
+  fi
+}
+
+install_from_source() {
+  local dest="$1"
+  mkdir -p "$(dirname "$dest")"
+  if [[ $IS_CLONED -eq 1 ]]; then
+    if [[ "$SOURCE_DIR" == "$dest" ]]; then
+      echo "  already at $dest"
+      return
+    fi
+    copy_tree "$SOURCE_DIR" "$dest"
+    return
+  fi
+  if command -v git >/dev/null 2>&1; then
+    if [[ -d "$dest/.git" ]]; then
+      git -C "$dest" pull --ff-only
+    else
+      rm -rf "$dest"
+      git clone "$REPO_URL" "$dest"
+    fi
+    return
+  fi
+  TMP=$(mktemp -d)
+  curl -fsSL "https://github.com/lnuxe/flutter-defect-triage/archive/refs/heads/main.tar.gz" \
+    | tar -xz -C "$TMP" --strip-components=1
+  copy_tree "$TMP" "$dest"
+  rm -rf "$TMP"
+}
+
+echo "→ Installing Cursor skill: $CURSOR_DIR"
+install_from_source "$CURSOR_DIR"
+
+if [[ -d "$(dirname "$CLAUDE_DIR")" ]] || command -v claude >/dev/null 2>&1; then
+  echo "→ Installing Claude Code skill: $CLAUDE_DIR"
+  install_from_source "$CLAUDE_DIR"
+else
+  echo "→ Claude Code skills dir not found, skipped (Cursor only)"
+fi
+
+VERSION="$(tr -d '[:space:]' < "$CURSOR_DIR/VERSION" 2>/dev/null || echo unknown)"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  ✅ Installed $SKILL_NAME v$VERSION"
+echo ""
+echo "  Cursor:  $CURSOR_DIR"
+echo "  Next:    新开一轮对话，直接描述缺陷即可"
+echo "  Overlay: 复制 examples/project-overlay/ 到目标仓库 .cursor/skills/$SKILL_NAME/"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
